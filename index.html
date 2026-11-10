@@ -38,7 +38,7 @@
 <body>
 <main>
   <h1>Adım Sesi</h1>
-  <p class="sub">Telefon cebinde ya da elinde. Her adımda seçtiğin ses çalar.</p>
+  <p class="sub">Her adımda seçtiğin ses çalar. En iyi sonuç telefon pantolon cebindeyken alınır.</p>
 
   <div class="counter" id="counter" title="Dokunarak elle adım deneyebilirsin">
     <b id="count">0</b><small>adım</small>
@@ -65,7 +65,7 @@ const $ = id => document.getElementById(id);
 
 function ensureAudio(){
   if(!ctx){
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'});
     master = ctx.createGain(); master.connect(ctx.destination); setVol(); loadAll();
   }
   if(ctx.state === 'suspended') ctx.resume();
@@ -90,7 +90,7 @@ async function loadSound(k){
   buffers[k] = 'yukleniyor';
   try{
     buffers[k] = await Promise.all([0,1,2,3,4].map(async i=>{
-      const r = await fetch(`sesler/${s.dosya}_00${i}.mp3`);
+      const r = await fetch(`sesler/${s.dosya}_00${i}.wav`);
       return ctx.decodeAudioData(await r.arrayBuffer());
     }));
   }catch(e){ delete buffers[k]; $('status').textContent='Sesler yüklenemedi, internet bağlantını kontrol et.'; }
@@ -111,7 +111,7 @@ function playSound(k){
   src.buffer = buf;
   src.playbackRate.value = (s.hiz||1) * (0.94 + Math.random()*0.12);  // her adım hafif farklı
   g.gain.value = (s.kazanc||1) * (0.85 + Math.random()*0.15);
-  src.connect(g).connect(master); src.start();
+  src.connect(g).connect(master); src.start(0);
 }
 
 function renderSounds(){
@@ -132,19 +132,33 @@ function step(){
 }
 
 // --- Adım algılama ---
-let avg=9.8, lp=0, lastStep=0, above=false;
-const hist=[], HN=150;
-function threshold(){ return .6 + (10 - +$('sens').value) * .35; } // hassasiyet 10 → 0.6, 1 → 3.75 m/s²
+// Telefonun duruşundan bağımsız olarak yerçekimi yönündeki (dikey) ivmeyi izler,
+// eşik aşıldığı ANDA tetikler (tepe noktasını beklemez), eşiği yürüyüşüne göre kendisi ayarlar.
+let gx=0, gy=0, gz=0, gInit=false, prev=0, lastStep=0, armed=true, peak=0, peakAvg=0;
+const intervals=[], hist=[], HN=150;
+function minThr(){ return .5 + (10 - +$('sens').value) * .3; }     // hassasiyet 10 → 0.5, 1 → 3.2 m/s²
+function threshold(){ return Math.max(minThr(), peakAvg*.4); }
+function median(arr){ const b=[...arr].sort((x,y)=>x-y); return b[b.length>>1]; }
 function onMotion(e){
   const a=e.accelerationIncludingGravity; if(!a || a.x==null) return;
   gotMotion=true;
-  const m=Math.hypot(a.x,a.y,a.z);
-  avg = avg*.98 + m*.02;           // yerçekimi / ortalama
-  lp  = lp*.6 + (m-avg)*.4;        // titreşimi yumuşat
-  const th=threshold(), now=performance.now();
-  if(!above && lp>th && now-lastStep>280){ above=true; lastStep=now; step(); }
-  else if(above && lp<th*.3) above=false;
-  hist.push(lp); if(hist.length>HN) hist.shift();
+  if(!gInit){ gx=a.x; gy=a.y; gz=a.z; gInit=true; }
+  const k=.92; gx=gx*k+a.x*(1-k); gy=gy*k+a.y*(1-k); gz=gz*k+a.z*(1-k);
+  const gl=Math.hypot(gx,gy,gz)||1;
+  const vert=(a.x*gx+a.y*gy+a.z*gz)/gl - gl;   // dikey ivme
+  const x=vert*.75 + prev*.25; prev=x;          // çok hafif yumuşatma, gecikme yok denecek kadar az
+  const now=performance.now(), th=threshold();
+  const minGap = intervals.length>=3 ? Math.max(250, median(intervals)*.55) : 300;
+  if(armed && x>th && now-lastStep>minGap){
+    armed=false; peak=x;
+    if(lastStep && now-lastStep<1500){ intervals.push(now-lastStep); if(intervals.length>8) intervals.shift(); }
+    lastStep=now; step();
+  } else if(!armed){
+    if(x>peak) peak=x;
+    if(x<th*.25){ armed=true; peakAvg = peakAvg ? peakAvg*.8+peak*.2 : peak; }
+  }
+  if(now-lastStep>2000) peakAvg*=.995;           // durunca eşik yavaşça normale döner
+  hist.push(x); if(hist.length>HN) hist.shift();
 }
 
 function draw(){
@@ -178,6 +192,7 @@ async function start(){
       if(r!=='granted'){ $('status').textContent='Hareket sensörü izni verilmedi.'; return; }
     }catch(e){ $('status').textContent='Sensör izni istenemedi: '+e.message; return; }
   }
+  gInit=false; peakAvg=0; intervals.length=0; armed=true;
   window.addEventListener('devicemotion',onMotion);
   running=true; gotMotion=false; keepAwake();
   $('start').textContent='Durdur'; $('start').classList.add('stop');
