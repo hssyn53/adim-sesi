@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Adım Sesi</title>
+<style>
+  :root{--bg:#14110f;--card:#1f1a17;--line:#3a312b;--text:#f3ebe3;--mute:#a8998c;--acc:#ff8a3d;--acc2:#ffd166}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
+  main{max-width:460px;margin:0 auto;padding:20px 16px 40px}
+  h1{margin:0;font-size:26px;letter-spacing:-.5px}
+  .sub{margin:4px 0 18px;color:var(--mute);font-size:14px}
+  .counter{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;text-align:center;user-select:none;cursor:pointer;position:relative;overflow:hidden}
+  .counter b{display:block;font-size:72px;line-height:1;font-variant-numeric:tabular-nums}
+  .counter small{color:var(--mute);font-size:13px}
+  .counter.pulse{animation:p .25s ease-out}
+  @keyframes p{0%{background:#3b2414}100%{background:var(--card)}}
+  canvas{width:100%;height:70px;display:block;margin-top:12px;border-radius:12px;background:#0f0d0b;border:1px solid var(--line)}
+  .big{width:100%;margin:14px 0 6px;padding:16px;font-size:18px;font-weight:700;border:0;border-radius:16px;background:var(--acc);color:#1a0f07;cursor:pointer}
+  .big.stop{background:#3a312b;color:var(--text)}
+  #status{min-height:20px;color:var(--acc2);font-size:13px;margin:6px 2px 14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--mute);margin:18px 2px 8px;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .snd{padding:12px 6px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;text-align:center}
+  .snd span{display:block;font-size:22px;margin-bottom:4px}
+  .snd.on{border-color:var(--acc);background:#2b1d13;box-shadow:0 0 0 1px var(--acc) inset}
+  .snd:disabled{opacity:.35}
+  .row{display:flex;align-items:center;gap:12px;margin:10px 2px}
+  .row label{width:100px;font-size:14px;color:var(--mute)}
+  .row input{flex:1;accent-color:var(--acc)}
+  .row output{width:28px;text-align:right;font-size:13px;color:var(--mute)}
+  .upload{display:block;margin-top:8px;padding:12px;border:1px dashed var(--line);border-radius:14px;text-align:center;font-size:14px;color:var(--mute);cursor:pointer}
+  .upload input{display:none}
+  .hint{font-size:12px;color:var(--mute);line-height:1.5;margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Adım Sesi</h1>
+  <p class="sub">Telefon cebinde ya da elinde. Her adımda seçtiğin ses çalar.</p>
+
+  <div class="counter" id="counter" title="Dokunarak elle adım deneyebilirsin">
+    <b id="count">0</b><small>adım</small>
+  </div>
+  <canvas id="graph"></canvas>
+
+  <button class="big" id="start">Başlat</button>
+  <div id="status"></div>
+
+  <h2>Ses</h2>
+  <div class="grid" id="sounds"></div>
+  <label class="upload">🎵 Kendi sesini yükle (mp3, wav…)<input type="file" id="file" accept="audio/*"></label>
+
+  <h2>Ayarlar</h2>
+  <div class="row"><label for="sens">Hassasiyet</label><input type="range" id="sens" min="1" max="10" value="5"><output id="sensO">5</output></div>
+  <div class="row"><label for="vol">Ses seviyesi</label><input type="range" id="vol" min="0" max="100" value="80"><output id="volO">80</output></div>
+
+  <p class="hint">Adımlar sayılmıyorsa hassasiyeti artır, durduğun yerde ses geliyorsa azalt. Tarayıcılar ekran kapanınca sensörü durdurduğu için ekran açık kalmalı (uygulama bunu kendisi istemeye çalışır). Sensörü olmayan cihazda sayaca dokunarak ya da boşluk tuşuyla deneyebilirsin.</p>
+</main>
+
+<script>
+let ctx, master, running = false, count = 0, current = 'kum', customBuf = null, wakeLock = null, gotMotion = false;
+const $ = id => document.getElementById(id);
+
+function ensureAudio(){
+  if(!ctx){
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain(); master.connect(ctx.destination); setVol();
+  }
+  if(ctx.state === 'suspended') ctx.resume();
+}
+function setVol(){ if(master) master.gain.value = ($('vol').value/100) ** 1.5; }
+function noise(dur){
+  const b = ctx.createBuffer(1, Math.ceil(ctx.sampleRate*dur), ctx.sampleRate), d = b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  const s = ctx.createBufferSource(); s.buffer = b; return s;
+}
+function env(g, t, a, dec, peak){
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t+a);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+a+dec);
+}
+const v = () => 0.85 + Math.random()*0.3; // her adım biraz farklı duyulsun
+function chain(...n){ for(let i=0;i<n.length-1;i++) n[i].connect(n[i+1]); return n[n.length-1]; }
+
+const SOUNDS = {
+  kum:{ic:'🪨',ad:'Çakıl',play(t){
+    const s=noise(.3), f=ctx.createBiquadFilter(), g=ctx.createGain();
+    f.type='bandpass'; f.frequency.value=1600*v(); f.Q.value=.7; env(g,t,.008,.2,.9);
+    chain(s,f,g,master); s.start(t); s.stop(t+.3);
+  }},
+  kar:{ic:'❄️',ad:'Kar',play(t){
+    for(let i=0;i<9;i++){
+      const tt=t+Math.random()*.16, s=noise(.04), f=ctx.createBiquadFilter(), g=ctx.createGain();
+      f.type='highpass'; f.frequency.value=2500+Math.random()*2500; env(g,tt,.002,.03,.5+Math.random()*.4);
+      chain(s,f,g,master); s.start(tt); s.stop(tt+.05);
+    }
+  }},
+  su:{ic:'💧',ad:'Su birikintisi',play(t){
+    const s=noise(.45), f=ctx.createBiquadFilter(), g=ctx.createGain();
+    f.type='lowpass'; f.frequency.setValueAtTime(4000*v(),t); f.frequency.exponentialRampToValueAtTime(300,t+.35);
+    env(g,t,.01,.35,.8); chain(s,f,g,master); s.start(t); s.stop(t+.45);
+    const o=ctx.createOscillator(), og=ctx.createGain(); o.type='sine';
+    o.frequency.setValueAtTime(500*v(),t+.03); o.frequency.exponentialRampToValueAtTime(1400,t+.12);
+    env(og,t+.03,.01,.1,.35); chain(o,og,master); o.start(t+.03); o.stop(t+.2);
+  }},
+  bip:{ic:'⬆️',ad:'Zıplama',play(t){
+    const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square';
+    o.frequency.setValueAtTime(260*v(),t); o.frequency.exponentialRampToValueAtTime(950,t+.13);
+    env(g,t,.005,.16,.25); chain(o,g,master); o.start(t); o.stop(t+.2);
+  }},
+  oyuncak:{ic:'🧸',ad:'Gıcırtılı oyuncak',play(t){
+    const o=ctx.createOscillator(), lfo=ctx.createOscillator(), lg=ctx.createGain(), g=ctx.createGain();
+    o.type='triangle'; const b=1100*v();
+    o.frequency.setValueAtTime(b,t); o.frequency.linearRampToValueAtTime(b*1.6,t+.08); o.frequency.linearRampToValueAtTime(b*.9,t+.22);
+    lfo.frequency.value=28; lg.gain.value=60; lfo.connect(lg).connect(o.frequency);
+    env(g,t,.01,.22,.4); chain(o,g,master); o.start(t); lfo.start(t); o.stop(t+.26); lfo.stop(t+.26);
+  }},
+  davul:{ic:'🥁',ad:'Davul',play(t){
+    const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine';
+    o.frequency.setValueAtTime(160*v(),t); o.frequency.exponentialRampToValueAtTime(45,t+.15);
+    env(g,t,.003,.3,1); chain(o,g,master); o.start(t); o.stop(t+.35);
+  }},
+  robot:{ic:'🤖',ad:'Robot',play(t){
+    [220,333,447].forEach(fq=>{
+      const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=fq*v();
+      env(g,t,.003,.12,.12); chain(o,g,master); o.start(t); o.stop(t+.15);
+    });
+    const s=noise(.08), f=ctx.createBiquadFilter(), g=ctx.createGain();
+    f.type='bandpass'; f.frequency.value=5000; f.Q.value=3; env(g,t+.01,.002,.06,.6);
+    chain(s,f,g,master); s.start(t); s.stop(t+.1);
+  }},
+  dev:{ic:'🦖',ad:'Dev adımı',play(t){
+    const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine';
+    o.frequency.setValueAtTime(90*v(),t); o.frequency.exponentialRampToValueAtTime(28,t+.5);
+    env(g,t,.005,.6,1); chain(o,g,master); o.start(t); o.stop(t+.7);
+    const s=noise(.7), f=ctx.createBiquadFilter(), sg=ctx.createGain();
+    f.type='lowpass'; f.frequency.value=250; env(sg,t,.01,.6,.7); chain(s,f,sg,master); s.start(t); s.stop(t+.7);
+  }},
+  ozel:{ic:'🎵',ad:'Senin sesin',play(t){
+    if(!customBuf) return;
+    const s=ctx.createBufferSource(); s.buffer=customBuf; s.playbackRate.value=.95+Math.random()*.1;
+    s.connect(master); s.start(t);
+  }}
+};
+
+function renderSounds(){
+  const box=$('sounds'); box.innerHTML='';
+  for(const [k,s] of Object.entries(SOUNDS)){
+    const b=document.createElement('button');
+    b.className='snd'+(k===current?' on':''); b.disabled = k==='ozel' && !customBuf;
+    b.innerHTML=`<span>${s.ic}</span>${s.ad}`;
+    b.onclick=()=>{ current=k; renderSounds(); ensureAudio(); SOUNDS[k].play(ctx.currentTime); };
+    box.appendChild(b);
+  }
+}
+
+function step(){
+  count++; $('count').textContent=count;
+  const c=$('counter'); c.classList.remove('pulse'); void c.offsetWidth; c.classList.add('pulse');
+  if(ctx) SOUNDS[current].play(ctx.currentTime);
+}
+
+// --- Adım algılama ---
+let avg=9.8, lp=0, lastStep=0, above=false;
+const hist=[], HN=150;
+function threshold(){ return .6 + (10 - +$('sens').value) * .35; } // hassasiyet 10 → 0.6, 1 → 3.75 m/s²
+function onMotion(e){
+  const a=e.accelerationIncludingGravity; if(!a || a.x==null) return;
+  gotMotion=true;
+  const m=Math.hypot(a.x,a.y,a.z);
+  avg = avg*.98 + m*.02;           // yerçekimi / ortalama
+  lp  = lp*.6 + (m-avg)*.4;        // titreşimi yumuşat
+  const th=threshold(), now=performance.now();
+  if(!above && lp>th && now-lastStep>280){ above=true; lastStep=now; step(); }
+  else if(above && lp<th*.3) above=false;
+  hist.push(lp); if(hist.length>HN) hist.shift();
+}
+
+function draw(){
+  const cv=$('graph'), dpr=devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+  if(cv.width!==w*dpr){ cv.width=w*dpr; cv.height=h*dpr; }
+  const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const sc=h/10, mid=h*.65, th=threshold();
+  g.strokeStyle='#ffd16655'; g.setLineDash([4,4]); g.beginPath(); g.moveTo(0,mid-th*sc); g.lineTo(w,mid-th*sc); g.stroke(); g.setLineDash([]);
+  g.strokeStyle='#ff8a3d'; g.lineWidth=2; g.beginPath();
+  hist.forEach((y,i)=>{ const x=i/(HN-1)*w, yy=Math.max(2,Math.min(h-2,mid-y*sc)); i?g.lineTo(x,yy):g.moveTo(x,yy); });
+  g.stroke();
+  requestAnimationFrame(draw);
+}
+
+async function keepAwake(){
+  try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{ if(running && document.visibilityState==='visible') keepAwake(); });
+
+async function start(){
+  ensureAudio();
+  if(running){
+    running=false; window.removeEventListener('devicemotion',onMotion);
+    try{ wakeLock && wakeLock.release(); }catch(e){}
+    $('start').textContent='Başlat'; $('start').classList.remove('stop'); $('status').textContent='Durduruldu.';
+    return;
+  }
+  if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+    try{
+      const r=await DeviceMotionEvent.requestPermission();
+      if(r!=='granted'){ $('status').textContent='Hareket sensörü izni verilmedi.'; return; }
+    }catch(e){ $('status').textContent='Sensör izni istenemedi: '+e.message; return; }
+  }
+  window.addEventListener('devicemotion',onMotion);
+  running=true; gotMotion=false; keepAwake();
+  $('start').textContent='Durdur'; $('start').classList.add('stop');
+  $('status').textContent='Dinleniyor… yürümeye başla.';
+  setTimeout(()=>{ if(running && !gotMotion) $('status').textContent='Hareket sensörü verisi gelmiyor. Telefonda tarayıcıdan aç; masaüstünde sayaca dokunarak ya da boşluk tuşuyla deneyebilirsin.'; },1500);
+}
+
+$('start').onclick=start;
+$('counter').onclick=()=>{ ensureAudio(); step(); };
+document.addEventListener('keydown',e=>{ if(e.code==='Space' && e.target.tagName!=='INPUT'){ e.preventDefault(); ensureAudio(); step(); } });
+$('sens').oninput=e=>$('sensO').textContent=e.target.value;
+$('vol').oninput=e=>{ $('volO').textContent=e.target.value; setVol(); };
+$('file').onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return; ensureAudio();
+  try{
+    customBuf=await ctx.decodeAudioData(await f.arrayBuffer());
+    current='ozel'; renderSounds(); SOUNDS.ozel.play(ctx.currentTime);
+    $('status').textContent='Ses yüklendi: '+f.name;
+  }catch(err){ $('status').textContent='Bu ses dosyası açılamadı.'; }
+};
+
+renderSounds(); draw();
+</script>
+</body>
+</html>
