@@ -15,10 +15,15 @@
   #big small { font-size:28px; color:var(--mut); font-weight:500; }
   #sub { text-align:center; color:var(--mut); margin-top:8px; font-size:14px; }
   #status { text-align:center; font-size:15px; padding:10px; border-radius:10px; background:#11151b; }
-  .ready { color:var(--acc); } .fly { color:var(--warn); }
+  .ready { color:var(--acc); } .fly { color:var(--warn); } .lock { color:var(--mut); }
   button { width:100%; max-width:420px; padding:16px; font-size:17px; font-weight:600; border:0;
            border-radius:14px; background:var(--acc); color:#06210f; }
   button.sec { background:#262d38; color:var(--fg); font-size:14px; padding:10px; }
+  .seg { display:flex; gap:8px; }
+  .seg button { flex:1; font-size:14px; padding:10px; background:#262d38; color:var(--fg); }
+  .seg button.on { background:var(--acc); color:#06210f; }
+  .h0 { display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:14px; color:var(--mut); }
+  .h0 input { width:80px; padding:8px; border-radius:8px; border:0; background:#11151b; color:var(--fg); font-size:16px; text-align:center; }
   canvas { width:100%; height:70px; display:block; }
   ul { list-style:none; } li { display:flex; justify-content:space-between; padding:6px 0;
        border-bottom:1px solid #222a35; font-variant-numeric:tabular-nums; font-size:15px; }
@@ -35,8 +40,19 @@
     <div id="sub">Havada kalma: 0.000 sn</div>
   </div>
 
+  <div class="card">
+    <div class="seg">
+      <button id="mGround" class="on">Yere / yatağa düşecek</button>
+      <button id="mCatch">Elimle yakalayacağım</button>
+    </div>
+    <div class="h0" id="h0row">
+      <span>Elinden çıktığı yükseklik (yerden)</span>
+      <span><input id="h0" type="number" step="0.1" min="0" value="1.5"> m</span>
+    </div>
+  </div>
+
   <button id="start">Başlat</button>
-  <div id="status" class="card">Başlat'a bas, sonra telefonu dikey yukarı at ve yakala.</div>
+  <div id="status" class="card">Başlat'a bas, sonra telefonu fırlat.</div>
 
   <div class="card">
     <div class="row"><span>Canlı ivme (m/s²)</span><span id="live">–</span></div>
@@ -50,48 +66,76 @@
   </div>
 
   <div class="card tip">
-    ⚠️ Yatağın ya da kanepenin üstünde dene, telefonu düşürme riski var.<br>
-    Nasıl çalışıyor: telefon havadayken serbest düşüşte olduğu için ivme sensörü ~0 gösterir.
-    Bu sürenin (t) ölçümünden yükseklik <b>h = g·t² / 8</b> ile bulunur
-    (atıldığı ve yakalandığı yükseklik aynı varsayılır).
+    ⚠️ Yatağın ya da kanepenin üstünde dene, telefonu düşürme riski var.<br><br>
+    Her atışta tek ölçüm yapılır: telefon elinden çıktığı andan <b>ilk değdiği ana</b> kadar geçen süre ölçülür.
+    Sonraki sekmeler sayılmaz. Telefon yerde birkaç saniye hareketsiz kalınca bir sonraki atış için hazır olur.<br><br>
+    <b>Yere düşecek</b> modunda gösterilen değer telefonun <b>yerden</b> çıktığı en yüksek noktadır.
+    Hesap için elinden çıktığı yüksekliği yazman yeterli (ayakta, el göğüs hizasındayken yaklaşık 1,3–1,5 m).<br>
+    <b>Yakalayacağım</b> modunda atıldığı ve yakalandığı yükseklik aynı varsayılır ve ölçülen, <b>elinden</b> ne kadar yükseldiğidir.
   </div>
 
 <script>
 const G = 9.81;
-const FREE_IN = 3.5;     // bu değerin altı = serbest düşüş başladı
-const FREE_OUT = 7.0;    // bu değerin üstü = yakalandı
-const GAP_MS = 80;       // dönerken oluşan kısa sıçramaları yut
-const MIN_T = 0.12;      // daha kısa düşüşleri sayma
+const FREE_IN = 3.5;     // altı = havada (serbest düşüş)
+const HIT = 7.0;         // üstü = bir şeye değdi
+const HIT_HARD = 18;     // tek örnekte bile çarpma say
+const HIT_MS = 30;       // dönme kaynaklı kısa sıçramaları yut
+const MIN_T = 0.15;      // daha kısa düşüşleri sayma
+const STILL_MS = 1200;   // yeniden hazır olmak için hareketsiz kalma süresi
 
 const $ = id => document.getElementById(id);
-let running = false, inFlight = false, tStart = 0, lastFree = 0, spikeStart = 0;
+let running = false;
+let state = 'ready';     // ready | flight | locked
+let tStart = 0, lastFree = 0, hitStart = 0, stillSince = 0;
+let mode = 'ground';
 let throws = [];
-try { throws = JSON.parse(localStorage.getItem('throws') || '[]'); } catch(e) {}
+try { throws = JSON.parse(localStorage.getItem('throws2') || '[]'); } catch(e) {}
+try { const s = localStorage.getItem('h0'); if (s) $('h0').value = s; } catch(e) {}
 
 const hist = [];
 const cv = $('graph'), ctx = cv.getContext('2d');
 
 function setStatus(txt, cls) { $('status').textContent = txt; $('status').className = 'card ' + (cls||''); }
 
+function setMode(m) {
+  mode = m;
+  $('mGround').classList.toggle('on', m === 'ground');
+  $('mCatch').classList.toggle('on', m === 'catch');
+  $('h0row').style.display = m === 'ground' ? 'flex' : 'none';
+}
+$('mGround').onclick = () => setMode('ground');
+$('mCatch').onclick = () => setMode('catch');
+$('h0').onchange = () => { try { localStorage.setItem('h0', $('h0').value); } catch(e) {} };
+
 function render() {
   const best = throws.reduce((m, x) => Math.max(m, x.h), 0);
   $('best').textContent = throws.length ? best.toFixed(2) + ' m' : '–';
-  $('list').innerHTML = throws.slice().reverse().slice(0, 10).map((x, i) =>
-    `<li><span>${x.h.toFixed(2)} m ${x.h === best ? '🏆' : ''}</span><span>${x.t.toFixed(3)} sn</span></li>`).join('');
+  $('list').innerHTML = throws.slice().reverse().slice(0, 10).map(x =>
+    `<li><span>${x.h.toFixed(2)} m ${x.h === best ? '🏆' : ''}</span><span>${x.mode === 'ground' ? 'yerden' : 'elden'} · ${x.t.toFixed(3)} sn</span></li>`).join('');
+}
+
+function height(t) {
+  if (mode === 'catch') return G * t * t / 8;
+  // Yerden h0 yükseklikte bırakıldı, t sonra yere (0) değdi.
+  // h0 + v·t − g·t²/2 = 0  →  v = (g·t²/2 − h0) / t
+  const h0 = Math.max(0, parseFloat($('h0').value) || 0);
+  const v = (G * t * t / 2 - h0) / t;
+  const rise = v > 0 ? v * v / (2 * G) : 0;   // elinden yukarı çıkış
+  return h0 + rise;                           // yerden en yüksek nokta
 }
 
 function finish(tEnd) {
-  inFlight = false;
   const t = (tEnd - tStart) / 1000;
-  if (t < MIN_T) { setStatus('Hazır — telefonu at!', 'ready'); return; }
-  const h = G * t * t / 8;
+  if (t < MIN_T) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); return; }
+  const h = height(t);
   $('big').innerHTML = h.toFixed(2) + '<small> m</small>';
-  $('sub').textContent = 'Havada kalma: ' + t.toFixed(3) + ' sn';
-  throws.push({ h, t, d: Date.now() });
-  try { localStorage.setItem('throws', JSON.stringify(throws)); } catch(e) {}
+  $('sub').textContent = 'Havada kalma: ' + t.toFixed(3) + ' sn · ' + (mode === 'ground' ? 'yerden' : 'elinden');
+  throws.push({ h, t, mode, d: Date.now() });
+  try { localStorage.setItem('throws2', JSON.stringify(throws)); } catch(e) {}
   render();
   if (navigator.vibrate) navigator.vibrate(100);
-  setStatus('Ölçüldü! Tekrar atabilirsin.', 'ready');
+  state = 'locked'; stillSince = 0;
+  setStatus('Ölçüldü ✓ Telefonu al, kısa bir süre sabit tut.', 'lock');
 }
 
 function onMotion(e) {
@@ -103,15 +147,21 @@ function onMotion(e) {
   hist.push(m); if (hist.length > 200) hist.shift();
   $('live').textContent = m.toFixed(1);
 
-  if (!inFlight) {
-    if (m < FREE_IN) { inFlight = true; tStart = now; lastFree = now; spikeStart = 0; setStatus('Havada…', 'fly'); }
-  } else {
-    if (m < FREE_IN) { lastFree = now; spikeStart = 0; }
-    else if (m > FREE_OUT) {
-      if (!spikeStart) spikeStart = now;
-      if (now - spikeStart > GAP_MS || m > 25) finish(lastFree);
+  if (state === 'ready') {
+    if (m < FREE_IN) { state = 'flight'; tStart = now; lastFree = now; hitStart = 0; setStatus('Havada…', 'fly'); }
+  } else if (state === 'flight') {
+    if (m < FREE_IN) { lastFree = now; hitStart = 0; }
+    else if (m > HIT) {
+      if (!hitStart) hitStart = now;
+      if (m > HIT_HARD || now - hitStart >= HIT_MS) finish(lastFree);   // İLK değme anı → ölçüm biter
     }
-    if (now - tStart > 5000) { inFlight = false; setStatus('Hazır — telefonu at!', 'ready'); }
+    if (state === 'flight' && now - tStart > 5000) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); }
+  } else if (state === 'locked') {
+    // Sekmeler burada yok sayılır. Telefon hareketsiz kalınca yeniden hazır.
+    if (Math.abs(m - G) < 1.2) {
+      if (!stillSince) stillSince = now;
+      if (now - stillSince > STILL_MS) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); }
+    } else stillSince = 0;
   }
 }
 
@@ -121,7 +171,7 @@ function draw() {
   const y = v => h - Math.min(v, 30) / 30 * h;
   ctx.strokeStyle = '#333c4a'; ctx.beginPath(); ctx.moveTo(0, y(G)); ctx.lineTo(w, y(G)); ctx.stroke();
   ctx.strokeStyle = '#7c4a1a'; ctx.beginPath(); ctx.moveTo(0, y(FREE_IN)); ctx.lineTo(w, y(FREE_IN)); ctx.stroke();
-  ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.strokeStyle = state === 'locked' ? '#8a94a6' : '#4ade80'; ctx.lineWidth = 2; ctx.beginPath();
   hist.forEach((v, i) => { const x = i / 199 * w; i ? ctx.lineTo(x, y(v)) : ctx.moveTo(x, y(v)); });
   ctx.stroke(); ctx.lineWidth = 1;
   requestAnimationFrame(draw);
@@ -129,11 +179,11 @@ function draw() {
 
 $('start').onclick = async () => {
   if (running) return;
-  if (!window.isSecureContext) { setStatus('Sensör için sayfa HTTPS ile açılmalı (ör. GitHub Pages).'); return; }
+  if (!window.isSecureContext) { setStatus('Sensör için sayfa HTTPS ile açılmalı.'); return; }
   if (typeof DeviceMotionEvent === 'undefined') { setStatus('Bu cihazda hareket sensörü yok.'); return; }
   try {
     if (typeof DeviceMotionEvent.requestPermission === 'function') {
-      const r = await DeviceMotionEvent.requestPermission();   // iPhone için izin
+      const r = await DeviceMotionEvent.requestPermission();
       if (r !== 'granted') { setStatus('Sensör izni verilmedi.'); return; }
     }
   } catch (e) { setStatus('İzin alınamadı: ' + e.message); return; }
@@ -141,13 +191,14 @@ $('start').onclick = async () => {
   running = true;
   $('start').textContent = 'Çalışıyor';
   $('start').style.background = '#262d38'; $('start').style.color = '#e8ecf2';
-  setStatus('Hazır — telefonu at!', 'ready');
+  state = 'ready';
+  setStatus('Hazır — telefonu fırlat!', 'ready');
   setTimeout(() => { if (!hist.length) setStatus('Sensörden veri gelmiyor. Tarayıcı ayarlarından hareket erişimini aç.'); }, 1500);
 };
 
-$('clear').onclick = () => { throws = []; try { localStorage.removeItem('throws'); } catch(e) {} render(); };
+$('clear').onclick = () => { throws = []; try { localStorage.removeItem('throws2'); } catch(e) {} render(); };
 
-render(); draw();
+setMode('ground'); render(); draw();
 </script>
 </body>
 </html>
