@@ -52,6 +52,11 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="row"><span>Kalibrasyon</span><span id="calInfo">–</span></div>
+    <button class="sec" id="cal">Kalibre et (1 m'den 3 bırakma)</button>
+  </div>
+
   <button id="start">Başlat</button>
   <div id="status" class="card">Başlat'a bas, sonra telefonu fırlat.</div>
 
@@ -84,7 +89,13 @@ const HIT_HARD = 18;     // tek örnekte bile çarpma say
 const HIT_MS = 30;       // dönme kaynaklı kısa sıçramaları yut
 const MIN_T = 0.15;      // daha kısa düşüşleri sayma
 const STILL_MS = 1200;
-const T_FIX = 0.055;    // sensör gecikmesi düzeltmesi (bırakma testinden: ~0,05 sn kısa ölçüyordu)   // yeniden hazır olmak için hareketsiz kalma süresi
+const T_DEF = 0.055;    // kalibrasyon yoksa varsayılan gecikme düzeltmesi
+const CAL_H = 1.0, CAL_N = 3, CAL_T = Math.sqrt(2 * CAL_H / G);   // 1 m → 0,4515 sn
+let tFix = T_DEF, calibrated = false, cal = null;   // cal = [] kalibrasyon sürerken
+try { const v = parseFloat(localStorage.getItem('tfix')); if (isFinite(v)) { tFix = v; calibrated = true; } } catch(e) {}
+function calInfo() {
+  $('calInfo').textContent = (calibrated ? 'Bu telefon: ' : 'Varsayılan: ') + '+' + Math.round(tFix * 1000) + ' ms';
+}   // yeniden hazır olmak için hareketsiz kalma süresi
 
 const $ = id => document.getElementById(id);
 let running = false;
@@ -138,7 +149,9 @@ function height(t) {
 }
 
 function finish(tEnd) {
-  const t = (tEnd - tStart) / 1000 + T_FIX;
+  const raw = (tEnd - tStart) / 1000;
+  if (cal) { calStep(raw); return; }
+  const t = raw + tFix;
   if (t < MIN_T) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); return; }
   const h = height(t);
   $('big').innerHTML = h.toFixed(2) + '<small> m</small>';
@@ -149,6 +162,29 @@ function finish(tEnd) {
   if (navigator.vibrate) navigator.vibrate(100);
   state = 'locked'; stillSince = 0;
   setStatus(warn || 'Ölçüldü ✓ Telefonu al, kısa bir süre sabit tut.', warn ? 'fly' : 'lock');
+}
+
+function calStep(raw) {
+  state = 'locked'; stillSince = 0;
+  if (raw < MIN_T) { setStatus('Kalibrasyon: algılanamadı, 1 m\'den tekrar bırak.', 'fly'); return; }
+  const off = CAL_T - raw;
+  if (off < -0.03 || off > 0.15) {
+    setStatus(`Kalibrasyon: ${raw.toFixed(3)} sn tutarsız (1 m'den mi bıraktın?). Bu sayılmadı, tekrar bırak.`, 'fly');
+    return;
+  }
+  cal.push(off);
+  if (navigator.vibrate) navigator.vibrate(60);
+  if (cal.length < CAL_N) {
+    setStatus(`Kalibrasyon ${cal.length}/${CAL_N} ✓ — telefonu al, sabit tut, sonra tekrar 1 m'den bırak.`, 'lock');
+    return;
+  }
+  tFix = cal.reduce((a, b) => a + b, 0) / cal.length;
+  const spread = (Math.max(...cal) - Math.min(...cal)) * 1000;
+  calibrated = true; cal = null;
+  try { localStorage.setItem('tfix', String(tFix)); } catch(e) {}
+  calInfo();
+  $('cal').textContent = "Yeniden kalibre et";
+  setStatus(`Kalibrasyon tamam ✓ Düzeltme +${Math.round(tFix * 1000)} ms` + (spread > 30 ? ' (ölçümler biraz dağınıktı, istersen tekrarla)' : ''), 'ready');
 }
 
 function onMotion(e) {
@@ -173,7 +209,7 @@ function onMotion(e) {
     // Sekmeler burada yok sayılır. Telefon hareketsiz kalınca yeniden hazır.
     if (Math.abs(m - G) < 1.2) {
       if (!stillSince) stillSince = now;
-      if (now - stillSince > STILL_MS) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); }
+      if (now - stillSince > STILL_MS) { state = 'ready'; setStatus(cal ? `Kalibrasyon: hazır, 1 m'den bırak (${cal.length}/${CAL_N})` : 'Hazır — telefonu fırlat!', cal ? 'fly' : 'ready'); }
     } else stillSince = 0;
   }
 }
@@ -209,9 +245,18 @@ $('start').onclick = async () => {
   setTimeout(() => { if (!hist.length) setStatus('Sensörden veri gelmiyor. Tarayıcı ayarlarından hareket erişimini aç.'); }, 1500);
 };
 
+$('cal').onclick = async () => {
+  if (!running) await $('start').onclick();
+  if (!running) return;
+  cal = [];
+  state = 'locked'; stillSince = 0;
+  $('cal').textContent = 'Kalibrasyon sürüyor…';
+  setStatus(`Kalibrasyon: telefonu yatağın 1 m üstünden düz bırak (0/${CAL_N}). Önce sabit tut.`, 'fly');
+};
+
 $('clear').onclick = () => { throws = []; try { localStorage.removeItem('throws2'); } catch(e) {} render(); };
 
-setMode('ground'); render(); draw();
+setMode('ground'); calInfo(); if (calibrated) $('cal').textContent = 'Yeniden kalibre et'; render(); draw();
 </script>
 </body>
 </html>
