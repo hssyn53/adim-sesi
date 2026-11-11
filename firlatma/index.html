@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Fırlatma Ölçer</title>
+<style>
+  :root { --bg:#0e1116; --card:#181d25; --fg:#e8ecf2; --mut:#8a94a6; --acc:#4ade80; --warn:#fbbf24; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,sans-serif;
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px; gap:16px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:.5px; }
+  .card { background:var(--card); border-radius:16px; padding:20px; width:100%; max-width:420px; }
+  #big { font-size:72px; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; line-height:1; }
+  #big small { font-size:28px; color:var(--mut); font-weight:500; }
+  #sub { text-align:center; color:var(--mut); margin-top:8px; font-size:14px; }
+  #status { text-align:center; font-size:15px; padding:10px; border-radius:10px; background:#11151b; }
+  .ready { color:var(--acc); } .fly { color:var(--warn); }
+  button { width:100%; max-width:420px; padding:16px; font-size:17px; font-weight:600; border:0;
+           border-radius:14px; background:var(--acc); color:#06210f; }
+  button.sec { background:#262d38; color:var(--fg); font-size:14px; padding:10px; }
+  canvas { width:100%; height:70px; display:block; }
+  ul { list-style:none; } li { display:flex; justify-content:space-between; padding:6px 0;
+       border-bottom:1px solid #222a35; font-variant-numeric:tabular-nums; font-size:15px; }
+  li span:last-child { color:var(--mut); }
+  .row { display:flex; justify-content:space-between; color:var(--mut); font-size:13px; margin-bottom:8px; }
+  .tip { color:var(--mut); font-size:13px; line-height:1.5; }
+</style>
+</head>
+<body>
+  <h1>📱↑ Fırlatma Ölçer</h1>
+
+  <div class="card">
+    <div id="big">0.00<small> m</small></div>
+    <div id="sub">Havada kalma: 0.000 sn</div>
+  </div>
+
+  <button id="start">Başlat</button>
+  <div id="status" class="card">Başlat'a bas, sonra telefonu dikey yukarı at ve yakala.</div>
+
+  <div class="card">
+    <div class="row"><span>Canlı ivme (m/s²)</span><span id="live">–</span></div>
+    <canvas id="graph" width="400" height="70"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="row"><span>Atışlar</span><span>Rekor: <b id="best">–</b></span></div>
+    <ul id="list"></ul>
+    <button class="sec" id="clear" style="margin-top:10px">Temizle</button>
+  </div>
+
+  <div class="card tip">
+    ⚠️ Yatağın ya da kanepenin üstünde dene, telefonu düşürme riski var.<br>
+    Nasıl çalışıyor: telefon havadayken serbest düşüşte olduğu için ivme sensörü ~0 gösterir.
+    Bu sürenin (t) ölçümünden yükseklik <b>h = g·t² / 8</b> ile bulunur
+    (atıldığı ve yakalandığı yükseklik aynı varsayılır).
+  </div>
+
+<script>
+const G = 9.81;
+const FREE_IN = 3.5;     // bu değerin altı = serbest düşüş başladı
+const FREE_OUT = 7.0;    // bu değerin üstü = yakalandı
+const GAP_MS = 80;       // dönerken oluşan kısa sıçramaları yut
+const MIN_T = 0.12;      // daha kısa düşüşleri sayma
+
+const $ = id => document.getElementById(id);
+let running = false, inFlight = false, tStart = 0, lastFree = 0, spikeStart = 0;
+let throws = [];
+try { throws = JSON.parse(localStorage.getItem('throws') || '[]'); } catch(e) {}
+
+const hist = [];
+const cv = $('graph'), ctx = cv.getContext('2d');
+
+function setStatus(txt, cls) { $('status').textContent = txt; $('status').className = 'card ' + (cls||''); }
+
+function render() {
+  const best = throws.reduce((m, x) => Math.max(m, x.h), 0);
+  $('best').textContent = throws.length ? best.toFixed(2) + ' m' : '–';
+  $('list').innerHTML = throws.slice().reverse().slice(0, 10).map((x, i) =>
+    `<li><span>${x.h.toFixed(2)} m ${x.h === best ? '🏆' : ''}</span><span>${x.t.toFixed(3)} sn</span></li>`).join('');
+}
+
+function finish(tEnd) {
+  inFlight = false;
+  const t = (tEnd - tStart) / 1000;
+  if (t < MIN_T) { setStatus('Hazır — telefonu at!', 'ready'); return; }
+  const h = G * t * t / 8;
+  $('big').innerHTML = h.toFixed(2) + '<small> m</small>';
+  $('sub').textContent = 'Havada kalma: ' + t.toFixed(3) + ' sn';
+  throws.push({ h, t, d: Date.now() });
+  try { localStorage.setItem('throws', JSON.stringify(throws)); } catch(e) {}
+  render();
+  if (navigator.vibrate) navigator.vibrate(100);
+  setStatus('Ölçüldü! Tekrar atabilirsin.', 'ready');
+}
+
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity;
+  if (!a || a.x == null) return;
+  const m = Math.hypot(a.x, a.y, a.z);
+  const now = performance.now();
+
+  hist.push(m); if (hist.length > 200) hist.shift();
+  $('live').textContent = m.toFixed(1);
+
+  if (!inFlight) {
+    if (m < FREE_IN) { inFlight = true; tStart = now; lastFree = now; spikeStart = 0; setStatus('Havada…', 'fly'); }
+  } else {
+    if (m < FREE_IN) { lastFree = now; spikeStart = 0; }
+    else if (m > FREE_OUT) {
+      if (!spikeStart) spikeStart = now;
+      if (now - spikeStart > GAP_MS || m > 25) finish(lastFree);
+    }
+    if (now - tStart > 5000) { inFlight = false; setStatus('Hazır — telefonu at!', 'ready'); }
+  }
+}
+
+function draw() {
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  const y = v => h - Math.min(v, 30) / 30 * h;
+  ctx.strokeStyle = '#333c4a'; ctx.beginPath(); ctx.moveTo(0, y(G)); ctx.lineTo(w, y(G)); ctx.stroke();
+  ctx.strokeStyle = '#7c4a1a'; ctx.beginPath(); ctx.moveTo(0, y(FREE_IN)); ctx.lineTo(w, y(FREE_IN)); ctx.stroke();
+  ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; ctx.beginPath();
+  hist.forEach((v, i) => { const x = i / 199 * w; i ? ctx.lineTo(x, y(v)) : ctx.moveTo(x, y(v)); });
+  ctx.stroke(); ctx.lineWidth = 1;
+  requestAnimationFrame(draw);
+}
+
+$('start').onclick = async () => {
+  if (running) return;
+  if (!window.isSecureContext) { setStatus('Sensör için sayfa HTTPS ile açılmalı (ör. GitHub Pages).'); return; }
+  if (typeof DeviceMotionEvent === 'undefined') { setStatus('Bu cihazda hareket sensörü yok.'); return; }
+  try {
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      const r = await DeviceMotionEvent.requestPermission();   // iPhone için izin
+      if (r !== 'granted') { setStatus('Sensör izni verilmedi.'); return; }
+    }
+  } catch (e) { setStatus('İzin alınamadı: ' + e.message); return; }
+  window.addEventListener('devicemotion', onMotion);
+  running = true;
+  $('start').textContent = 'Çalışıyor';
+  $('start').style.background = '#262d38'; $('start').style.color = '#e8ecf2';
+  setStatus('Hazır — telefonu at!', 'ready');
+  setTimeout(() => { if (!hist.length) setStatus('Sensörden veri gelmiyor. Tarayıcı ayarlarından hareket erişimini aç.'); }, 1500);
+};
+
+$('clear').onclick = () => { throws = []; try { localStorage.removeItem('throws'); } catch(e) {} render(); };
+
+render(); draw();
+</script>
+</body>
+</html>
