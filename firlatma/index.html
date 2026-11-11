@@ -83,7 +83,8 @@ const HIT = 7.0;         // üstü = bir şeye değdi
 const HIT_HARD = 18;     // tek örnekte bile çarpma say
 const HIT_MS = 30;       // dönme kaynaklı kısa sıçramaları yut
 const MIN_T = 0.15;      // daha kısa düşüşleri sayma
-const STILL_MS = 1200;   // yeniden hazır olmak için hareketsiz kalma süresi
+const STILL_MS = 1200;
+const T_FIX = 0.055;    // sensör gecikmesi düzeltmesi (bırakma testinden: ~0,05 sn kısa ölçüyordu)   // yeniden hazır olmak için hareketsiz kalma süresi
 
 const $ = id => document.getElementById(id);
 let running = false;
@@ -137,7 +138,7 @@ function height(t) {
 }
 
 function finish(tEnd) {
-  const t = (tEnd - tStart) / 1000;
+  const t = (tEnd - tStart) / 1000 + T_FIX;
   if (t < MIN_T) { state = 'ready'; setStatus('Hazır — telefonu fırlat!', 'ready'); return; }
   const h = height(t);
   $('big').innerHTML = h.toFixed(2) + '<small> m</small>';
