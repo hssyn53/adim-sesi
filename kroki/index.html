@@ -40,7 +40,7 @@ button.dark:active{background:#444}
 <div id="app">
   <div class="top">
     <button id="go" class="dark">Başla</button>
-    <div class="stat"><b id="roomInfo">Oda yok</b> · <span id="steps">0</span> adım<br><span id="wallInfo">Yön: –</span></div>
+    <div class="stat"><b id="roomInfo">Oda yok</b> · <span id="steps">0</span> adım<br><span id="wallInfo">Yön: –</span><br><span id="dbg" style="font-size:11px;color:#888">Sensör: –</span></div>
     <button id="setBtn">Ayarlar</button>
   </div>
   <canvas id="cv"></canvas>
@@ -83,6 +83,9 @@ button.dark:active{background:#444}
   <label>Yönleri yasla
     <select id="snap"><option value="90">90° (dik açılı binalar)</option><option value="45">45°</option><option value="0">Serbest</option></select>
   </label>
+  <label>Yön kaynağı
+    <select id="src"><option value="auto">Otomatik</option><option value="gyro">Jiroskop</option><option value="compass">Pusula</option><option value="manual">Elle (Sola/Sağa düğmeleri)</option></select>
+  </label>
   <label class="chk"><input type="checkbox" id="flip"> Dönüşler ters çiziliyorsa işaretleyin</label>
   <p id="sensorInfo"></p>
   <button class="dark" id="closeSet">Tamam</button>
@@ -104,7 +107,7 @@ const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform===
 let st={stepCm:70,wallCm:30,sens:'orta',snap:'90',flip:false,pos:{x:0,y:0},track:[{x:0,y:0}],rooms:[],marks:[],steps:0,gh:0,off:0,ref:null,lastCornerSteps:0};
 try{const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s&&s.pos) st={...st,...s};}catch(_){}
 let running=false, listening=false, wake=null, undoStack=[];
-let gyroHead=st.gh||0, hasGyro=false, compass=null, gotAbs=false, gAvg=null, lastT=null;
+let yawRate=0, gyroHead=st.gh||0, hasGyro=false, compass=null, gotAbs=false, gAvg=null, lastT=null;
 const save=()=>{st.gh=gyroHead; try{localStorage.setItem(KEY,JSON.stringify(st));}catch(_){}};
 const fmt=v=>v.toFixed(1).replace('.',',');
 let msgT; function msg(t){const m=$('msg'); m.textContent=t; m.classList.add('show'); clearTimeout(msgT); msgT=setTimeout(()=>m.classList.remove('show'),2600);}
@@ -120,11 +123,32 @@ function onOrient(e){
   compass=compass==null?h:circEma(compass,h,0.15);
   if(st.ref==null&&running) st.ref=compass;
 }
+function useSrc(){
+  const s=st.src||'auto';
+  if(s==='manual') return 'manual';
+  if(s==='gyro') return hasGyro?'gyro':'manual';
+  if(s==='compass') return compass!=null?'compass':'manual';
+  return hasGyro&&!gyroBad?'gyro':(compass!=null?'compass':'manual');
+}
 function rawHead(){
-  if(hasGyro) return gyroHead+st.off;
-  if(compass!=null&&st.ref!=null) return compass-st.ref+st.off;
+  const u=useSrc();
+  if(u==='gyro') return gyroHead+st.off;
+  if(u==='compass'){if(st.ref==null) st.ref=compass; return compass-st.ref+st.off;}
   return st.off;
 }
+/* jiroskop gerçekten dönüşü görüyor mu? pusulayla karşılaştır */
+let gyroBad=false, hist3=[];
+setInterval(()=>{
+  if(!running||!hasGyro||compass==null) return;
+  hist3.push({c:compass,g:gyroHead}); if(hist3.length>4) hist3.shift();
+  if(hist3.length<4) return;
+  const a=hist3[0], b=hist3[3], dC=Math.abs(((b.c-a.c+540)%360)-180), dG=Math.abs(b.g-a.g);
+  if(dC>50&&dG<12){
+    if((st.gscale||1)===1&&Math.abs(dG*57.3-dC)<0.5*dC){st.gscale=57.3; gyroHead=a.g+(b.g-a.g)*57.3; msg('Jiroskop birimi düzeltildi');}
+    else if(!gyroBad){gyroBad=true; st.ref=compass-gyroHead; msg('Jiroskop dönüşü görmüyor, pusulaya geçildi');}
+    hist3=[];
+  }
+},1000);
 function relHead(){
   let r=((rawHead()%360)+360)%360;
   const s=+st.snap; if(s) r=(Math.round(r/s)*s)%360;
@@ -152,12 +176,13 @@ function onMotion(e){
     hasGyro=true;
     const gl=Math.hypot(gAvg.x,gAvg.y,gAvg.z)||1;
     const yaw=((r.beta||0)*gAvg.x+(r.gamma||0)*gAvg.y+r.alpha*gAvg.z)/gl;
-    gyroHead+=(isIOS?1:-1)*(st.flip?-1:1)*yaw*dt;
+    yawRate=yaw*(st.gscale||1);
+    gyroHead+=(isIOS?1:-1)*(st.flip?-1:1)*yawRate*dt;
   }
 }
 function step(){
   const s=+st.snap;
-  if(hasGyro&&s){const tgt=Math.round(gyroHead/s)*s; gyroHead+=0.15*(tgt-gyroHead);}
+  if(useSrc()==='gyro'&&s){const tgt=Math.round(gyroHead/s)*s; gyroHead+=0.15*(tgt-gyroHead);}
   const h=relHead()*Math.PI/180, L=st.stepCm/100;
   st.pos={x:+(st.pos.x+L*Math.sin(h)).toFixed(3),y:+(st.pos.y-L*Math.cos(h)).toFixed(3)};
   const tl=st.track[st.track.length-1];
@@ -268,13 +293,13 @@ $('reset').onclick=()=>{
 };
 
 /* ---------- ayarlar ---------- */
-$('stepCm').value=st.stepCm; $('wallCm').value=st.wallCm; $('sens').value=st.sens; $('snap').value=st.snap; $('flip').checked=st.flip;
+$('stepCm').value=st.stepCm; $('wallCm').value=st.wallCm; $('sens').value=st.sens; $('snap').value=st.snap; $('flip').checked=st.flip; $('src').value=st.src||'auto';
 const applySettings=()=>{
   const v=+$('stepCm').value; if(v>=30&&v<=120) st.stepCm=v;
   const w=+$('wallCm').value; if(w>=0&&w<=100) st.wallCm=w;
-  st.sens=$('sens').value; st.snap=$('snap').value; st.flip=$('flip').checked; save(); draw();
+  st.sens=$('sens').value; st.snap=$('snap').value; st.flip=$('flip').checked; const ns=$('src').value; if(ns!==(st.src||'auto')){const prev=rawHead()-st.off; st.src=ns; gyroBad=false; if(compass!=null) st.ref=compass-prev; gyroHead=prev;} save(); draw();
 };
-['stepCm','wallCm','sens','snap','flip'].forEach(id=>$(id).onchange=applySettings);
+['stepCm','wallCm','sens','snap','flip','src'].forEach(id=>$(id).onchange=applySettings);
 $('setBtn').onclick=()=>$('setSheet').classList.add('show');
 $('closeSet').onclick=()=>{applySettings(); $('setSheet').classList.remove('show');};
 if(st.steps===0&&!st.rooms.length) $('setSheet').classList.add('show');
@@ -383,6 +408,8 @@ function draw(){
   if(r&&r.pts.length){const a=r.pts[r.pts.length-1]; $('wallInfo').textContent='Bu duvar: '+fmt(Math.hypot(st.pos.x-a.x,st.pos.y-a.y))+' m ('+(st.steps-st.lastCornerSteps)+' adım) · '+dirTxt;}
   else $('wallInfo').textContent='Yön: '+dirTxt+(running&&!hasGyro&&compass==null?' · sensör yok':'');
 }
+const SRC={gyro:'jiroskop',compass:'pusula',manual:'elle'};
+setInterval(()=>{$('dbg').textContent='Sensör: '+SRC[useSrc()]+' · dönüş '+Math.round(yawRate)+'°/s · pusula '+(compass==null?'yok':Math.round(compass)+'°')+(hasGyro?'':' · jiroskop yok');},300);
 addEventListener('resize',draw);
 setInterval(()=>{if(running) draw();},200);
 setInterval(()=>{if(running) save();},3000);
