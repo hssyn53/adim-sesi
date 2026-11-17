@@ -16,10 +16,14 @@ button:active{background:#e5e5e5}
 button.dark{background:#111;color:#fff}
 button.dark:active{background:#444}
 #cv{flex:1;width:100%;min-height:0;display:block;touch-action:none}
-.main{display:grid;grid-template-columns:2fr 1fr;gap:6px;padding:8px 10px 0;border-top:1px solid #ddd}
-.main button{padding:18px 4px;font-size:18px;font-weight:700}
+.bar{border-top:1px solid #ddd;padding:8px 10px 0;display:flex;flex-direction:column;gap:6px}
+#lenBtn{width:100%;padding:10px;font-size:20px;font-weight:700;display:flex;justify-content:center;gap:10px;align-items:baseline}
+#lenBtn small{font-size:13px;font-weight:400;color:#555}
+.turns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.turns button{padding:18px 4px;font-size:18px;font-weight:700}
+#roomBtn{width:100%;padding:12px;font-size:16px;font-weight:700}
 .marks{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 10px 4px}
-.marks button{padding:12px 2px;font-size:14px;font-weight:600}
+.marks button{padding:11px 2px;font-size:14px;font-weight:600}
 .tools{display:flex;gap:6px;padding:4px 10px 10px;overflow-x:auto}
 .tools button{font-size:13px;padding:8px 10px;white-space:nowrap}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:5}
@@ -27,7 +31,6 @@ button.dark:active{background:#444}
 .card{background:#fff;width:100%;max-width:480px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column;gap:12px}
 .card h2{font-size:18px}
 .card label{font-size:14px;color:#333;display:flex;flex-direction:column;gap:4px}
-.card label.chk{flex-direction:row;align-items:center;gap:8px}
 .card input,.card select{font:inherit;font-size:16px;padding:10px;border:1px solid #bbb;border-radius:8px;background:#fff}
 .card p,.card li{font-size:14px;color:#444;line-height:1.5}
 .card ol{padding-left:20px;display:flex;flex-direction:column;gap:4px}
@@ -40,13 +43,17 @@ button.dark:active{background:#444}
 <div id="app">
   <div class="top">
     <button id="go" class="dark">Başla</button>
-    <div class="stat"><b id="roomInfo">Oda yok</b> · <span id="steps">0</span> adım<br><span id="wallInfo">Yön: –</span><br><span id="dbg" style="font-size:11px;color:#888">Sensör: –</span></div>
+    <div class="stat"><b id="roomInfo">Oda yok</b><br><span id="info">Adım sayacı kapalı</span></div>
     <button id="setBtn">Ayarlar</button>
   </div>
   <canvas id="cv"></canvas>
-  <div class="main">
-    <button id="corner" class="dark">Köşe</button>
-    <button id="close">Odayı kapat</button>
+  <div class="bar">
+    <button id="lenBtn"><span id="lenTxt">0,0 m</span><small id="lenSub">0 adım · düzeltmek için dokunun</small></button>
+    <div class="turns">
+      <button id="tl" class="dark">↺ Sola döndüm</button>
+      <button id="tr" class="dark">Sağa döndüm ↻</button>
+    </div>
+    <button id="roomBtn">Odaya başla (buradaki köşe)</button>
   </div>
   <div class="marks">
     <button data-mark="door">Kapı</button>
@@ -57,8 +64,8 @@ button.dark:active{background:#444}
   <div class="tools">
     <button id="undo">Geri al</button>
     <button id="plus">+1 adım</button>
-    <button id="left">↺ Sola 90°</button>
-    <button id="right">Sağa 90° ↻</button>
+    <button id="minus">−1 adım</button>
+    <button id="back">Arkaya dön</button>
     <button id="png">Resim indir</button>
     <button id="plan">Plana aktar</button>
     <button id="reset">Sıfırla</button>
@@ -68,27 +75,30 @@ button.dark:active{background:#444}
 <div class="sheet" id="setSheet"><div class="card">
   <h2>Yürüyüş Krokisi</h2>
   <ol>
-    <li>Telefonu önünüzde yere paralel tutun; üst kenarı yürüdüğünüz yönü göstersin.</li>
-    <li><b>Başla</b>'ya basın. Odanın bir köşesine gidip <b>Köşe</b>'ye basın.</li>
-    <li>Duvar dibinden bir sonraki köşeye yürüyün, <b>Köşe</b>'ye basın. Böyle devam edin.</li>
-    <li>İlk köşeye geri dönünce <b>Köşe</b> ya da <b>Odayı kapat</b>'a basın. Program odayı düzeltip kapatır.</li>
-    <li>Kapıdan geçip yeni odanın köşesinde yine <b>Köşe</b>'ye basın; yeni oda başlar.</li>
+    <li><b>Başla</b>'ya basın; adım sayacı açılır.</li>
+    <li>Odanın bir köşesinde, ilk duvara bakarak durun ve <b>Odaya başla</b>'ya basın.</li>
+    <li>Duvar dibinden yürüyün. Üstteki büyük sayı duvarın uzunluğunu gösterir; yanlışsa dokunup düzeltin.</li>
+    <li>Köşeye gelince hangi yöne döndüyseniz <b>Sola döndüm</b> ya da <b>Sağa döndüm</b>'e basın.</li>
+    <li>İlk köşeye geri dönünce <b>Odayı kapat</b>'a basın. Kalan fark duvarlara paylaştırılır.</li>
+    <li>Odalar arasında yürürken de dönüşleri bu düğmelerle verin; yeni odanın köşesinde yine <b>Odaya başla</b>.</li>
   </ol>
   <label>Adım uzunluğu (cm)<input id="stepCm" type="number" inputmode="numeric" min="30" max="120"></label>
   <label>Duvara uzaklığınız (cm)<input id="wallCm" type="number" inputmode="numeric" min="0" max="100"></label>
-  <p style="margin-top:-6px">Köşelerde duvardan bu kadar içeride duruyorsunuz. Odalar bu kadar dışa genişletilir.</p>
+  <p style="margin-top:-6px">Duvar dibinden bu kadar içeriden yürüyorsunuz. Kapanan odalar bu kadar dışa genişletilir.</p>
   <label>Adım algılama hassasiyeti
     <select id="sens"><option value="dusuk">Düşük (fazla adım sayıyorsa)</option><option value="orta">Orta</option><option value="yuksek">Yüksek (adım kaçırıyorsa)</option></select>
   </label>
-  <label>Yönleri yasla
-    <select id="snap"><option value="90">90° (dik açılı binalar)</option><option value="45">45°</option><option value="0">Serbest</option></select>
-  </label>
-  <label>Yön kaynağı
-    <select id="src"><option value="auto">Otomatik</option><option value="gyro">Jiroskop</option><option value="compass">Pusula</option><option value="manual">Elle (Sola/Sağa düğmeleri)</option></select>
-  </label>
-  <label class="chk"><input type="checkbox" id="flip"> Dönüşler ters çiziliyorsa işaretleyin</label>
-  <p id="sensorInfo"></p>
   <button class="dark" id="closeSet">Tamam</button>
+</div></div>
+
+<div class="sheet" id="lenSheet"><div class="card">
+  <h2>Bu duvarın uzunluğu</h2>
+  <p>İkisinden birini yazın. Yürümeden de yazabilirsiniz.</p>
+  <div class="row">
+    <label>Metre<input id="lenM" type="text" inputmode="decimal" placeholder="ör. 3,80"></label>
+    <label>Adım<input id="lenS" type="number" inputmode="numeric" placeholder="ör. 6"></label>
+  </div>
+  <div class="row"><button id="lenCancel">Vazgeç</button><button class="dark" id="lenOk">Kaydet</button></div>
 </div></div>
 
 <div class="sheet" id="nameSheet"><div class="card">
@@ -102,93 +112,38 @@ button.dark:active{background:#444}
 <script>
 const $=id=>document.getElementById(id);
 const cv=$('cv'), ctx=cv.getContext('2d');
-const KEY='yuruyusKrokisi2';
-const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-let st={stepCm:70,wallCm:30,sens:'orta',snap:'90',flip:false,pos:{x:0,y:0},track:[{x:0,y:0}],rooms:[],marks:[],steps:0,gh:0,off:0,ref:null,lastCornerSteps:0};
-try{const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s&&s.pos) st={...st,...s};}catch(_){}
+const KEY='yuruyusKrokisi3';
+let st={stepCm:70,wallCm:30,sens:'orta',dir:0,start:{x:0,y:0},segSteps:0,ovr:null,ovrAt:0,track:[{x:0,y:0}],rooms:[],marks:[],steps:0};
+try{const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s&&s.start) st={...st,...s};}catch(_){}
 let running=false, listening=false, wake=null, undoStack=[];
-let yawRate=0, gyroHead=st.gh||0, hasGyro=false, compass=null, gotAbs=false, gAvg=null, lastT=null;
-const save=()=>{st.gh=gyroHead; try{localStorage.setItem(KEY,JSON.stringify(st));}catch(_){}};
-const fmt=v=>v.toFixed(1).replace('.',',');
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st));}catch(_){}};
+const fmt=v=>v.toFixed(2).replace('.',',');
+const fmt1=v=>v.toFixed(1).replace('.',',');
 let msgT; function msg(t){const m=$('msg'); m.textContent=t; m.classList.add('show'); clearTimeout(msgT); msgT=setTimeout(()=>m.classList.remove('show'),2600);}
 const curRoom=()=>{const r=st.rooms[st.rooms.length-1]; return r&&!r.closed?r:null;};
+const r3=v=>Math.round(v*1000)/1000;
 
-/* ---------- yön: jiroskop (yoksa pusula) ---------- */
-function circEma(a,b,k){const d=((b-a+540)%360)-180; return (a+d*k+360)%360;}
-function onOrient(e){
-  let h=null;
-  if(typeof e.webkitCompassHeading==='number') h=e.webkitCompassHeading;
-  else if(e.alpha!=null){const abs=e.type==='deviceorientationabsolute'||e.absolute===true; if(abs) gotAbs=true; else if(gotAbs) return; h=(360-e.alpha)%360;}
-  if(h==null) return;
-  compass=compass==null?h:circEma(compass,h,0.15);
-  if(st.ref==null&&running) st.ref=compass;
-}
-function useSrc(){
-  const s=st.src||'auto';
-  if(s==='manual') return 'manual';
-  if(s==='gyro') return hasGyro?'gyro':'manual';
-  if(s==='compass') return compass!=null?'compass':'manual';
-  return hasGyro&&!gyroBad?'gyro':(compass!=null?'compass':'manual');
-}
-function rawHead(){
-  const u=useSrc();
-  if(u==='gyro') return gyroHead+st.off;
-  if(u==='compass'){if(st.ref==null) st.ref=compass; return compass-st.ref+st.off;}
-  return st.off;
-}
-/* jiroskop gerçekten dönüşü görüyor mu? pusulayla karşılaştır */
-let gyroBad=false, hist3=[];
-setInterval(()=>{
-  if(!running||!hasGyro||compass==null) return;
-  hist3.push({c:compass,g:gyroHead}); if(hist3.length>4) hist3.shift();
-  if(hist3.length<4) return;
-  const a=hist3[0], b=hist3[3], dC=Math.abs(((b.c-a.c+540)%360)-180), dG=Math.abs(b.g-a.g);
-  if(dC>50&&dG<12){
-    if((st.gscale||1)===1&&Math.abs(dG*57.3-dC)<0.5*dC){st.gscale=57.3; gyroHead=a.g+(b.g-a.g)*57.3; msg('Jiroskop birimi düzeltildi');}
-    else if(!gyroBad){gyroBad=true; st.ref=compass-gyroHead; msg('Jiroskop dönüşü görmüyor, pusulaya geçildi');}
-    hist3=[];
-  }
-},1000);
-function relHead(){
-  let r=((rawHead()%360)+360)%360;
-  const s=+st.snap; if(s) r=(Math.round(r/s)*s)%360;
-  return r;
-}
+/* ---------- bulunduğun yer: son köşe + yön × uzunluk ---------- */
+function segLen(){return st.ovr!=null?st.ovr+(st.segSteps-st.ovrAt)*st.stepCm/100:st.segSteps*st.stepCm/100;}
+function dirVec(d){const h=d*Math.PI/180; return {x:Math.round(Math.sin(h)*1e6)/1e6,y:Math.round(-Math.cos(h)*1e6)/1e6};}
+function pos(){const v=dirVec(st.dir), L=Math.max(0,segLen()); return {x:r3(st.start.x+v.x*L),y:r3(st.start.y+v.y*L)};}
+function newSeg(p){st.start={...p}; st.segSteps=0; st.ovr=null; st.ovrAt=0;}
 
-/* ---------- adım ---------- */
+/* ---------- adım sayacı ---------- */
 let ema=null, base=9.81, armed=true, last=0;
 const TH={dusuk:1.6,orta:1.1,yuksek:0.7};
 function onMotion(e){
-  const t=performance.now(), dt=lastT?Math.min(0.1,(t-lastT)/1000):0; lastT=t;
-  const a=e.accelerationIncludingGravity;
-  if(a&&a.x!=null){
-    gAvg=gAvg?{x:gAvg.x+0.1*(a.x-gAvg.x),y:gAvg.y+0.1*(a.y-gAvg.y),z:gAvg.z+0.1*(a.z-gAvg.z)}:{x:a.x,y:a.y,z:a.z};
-    if(running){
-      const m=Math.hypot(a.x,a.y,a.z);
-      ema=ema==null?m:ema+0.25*(m-ema);
-      base+=0.02*(ema-base);
-      if(armed&&ema>base+TH[st.sens]&&t-last>300){armed=false; last=t; step();}
-      else if(!armed&&ema<base+0.2) armed=true;
-    }
-  }
-  const r=e.rotationRate;
-  if(r&&r.alpha!=null&&gAvg&&dt>0){
-    hasGyro=true;
-    const gl=Math.hypot(gAvg.x,gAvg.y,gAvg.z)||1;
-    const yaw=((r.beta||0)*gAvg.x+(r.gamma||0)*gAvg.y+r.alpha*gAvg.z)/gl;
-    yawRate=yaw*(st.gscale||1);
-    gyroHead+=(isIOS?1:-1)*(st.flip?-1:1)*yawRate*dt;
-  }
+  if(!running) return;
+  const a=e.accelerationIncludingGravity; if(!a||a.x==null) return;
+  const m=Math.hypot(a.x,a.y,a.z), t=performance.now();
+  ema=ema==null?m:ema+0.25*(m-ema);
+  base+=0.02*(ema-base);
+  if(armed&&ema>base+TH[st.sens]&&t-last>300){armed=false; last=t; step(1);}
+  else if(!armed&&ema<base+0.2) armed=true;
 }
-function step(){
-  const s=+st.snap;
-  if(useSrc()==='gyro'&&s){const tgt=Math.round(gyroHead/s)*s; gyroHead+=0.15*(tgt-gyroHead);}
-  const h=relHead()*Math.PI/180, L=st.stepCm/100;
-  st.pos={x:+(st.pos.x+L*Math.sin(h)).toFixed(3),y:+(st.pos.y-L*Math.cos(h)).toFixed(3)};
-  const tl=st.track[st.track.length-1];
-  if(Math.hypot(tl.x-st.pos.x,tl.y-st.pos.y)>=0.3) st.track.push({...st.pos});
-  if(st.track.length>4000) st.track.splice(0,st.track.length-4000);
-  st.steps++; if(navigator.vibrate) navigator.vibrate(15);
+function step(n){
+  st.segSteps=Math.max(0,st.segSteps+n); st.steps=Math.max(0,st.steps+n);
+  if(n>0&&navigator.vibrate) navigator.vibrate(12);
   save(); draw();
 }
 async function start(){
@@ -196,28 +151,41 @@ async function start(){
     if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
       const r=await DeviceMotionEvent.requestPermission(); if(r!=='granted'){msg('Hareket izni verilmedi'); return;}
     }
-    if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function') await DeviceOrientationEvent.requestPermission();
   }catch(e){msg('İzin alınamadı: '+e.message);}
-  if(!listening){
-    addEventListener('devicemotion',onMotion);
-    addEventListener('deviceorientationabsolute',onOrient);
-    addEventListener('deviceorientation',onOrient);
-    listening=true;
-  }
+  if(!listening){addEventListener('devicemotion',onMotion); listening=true;}
   running=true; $('go').textContent='Duraklat'; $('go').classList.remove('dark');
-  if(compass!=null&&st.ref==null) st.ref=compass;
   try{if(navigator.wakeLock) wake=await navigator.wakeLock.request('screen');}catch(_){}
-  setTimeout(()=>{
-    $('sensorInfo').textContent=hasGyro?'Yön jiroskopla ölçülüyor.':(compass!=null?'Jiroskop yok, yön pusulayla ölçülüyor (daha az güvenilir).':'Yön sensörü bulunamadı; dönüşleri Sola/Sağa düğmeleriyle verin.');
-    if(!hasGyro&&compass==null) msg('Yön sensörü yok. Dönüşleri Sola/Sağa düğmeleriyle verin.');
-  },1500);
+  draw();
 }
-function stop(){running=false; $('go').textContent='Devam'; $('go').classList.add('dark'); if(wake){wake.release().catch(()=>{}); wake=null;}}
+function stop(){running=false; $('go').textContent='Devam'; $('go').classList.add('dark'); if(wake){wake.release().catch(()=>{}); wake=null;} draw();}
 $('go').onclick=()=>running?stop():start();
 document.addEventListener('visibilitychange',async()=>{if(running&&document.visibilityState==='visible'&&navigator.wakeLock){try{wake=await navigator.wakeLock.request('screen');}catch(_){}}});
 
-/* ---------- odalar ---------- */
-function pushUndo(){undoStack.push(JSON.stringify({rooms:st.rooms,marks:st.marks,lastCornerSteps:st.lastCornerSteps})); if(undoStack.length>40) undoStack.shift();}
+/* ---------- geri al ---------- */
+const GEO=['dir','start','segSteps','ovr','ovrAt','track','rooms','marks'];
+function pushUndo(){const s={}; GEO.forEach(k=>s[k]=st[k]); undoStack.push(JSON.stringify(s)); if(undoStack.length>50) undoStack.shift();}
+$('undo').onclick=()=>{
+  if(!undoStack.length) return msg('Geri alınacak adım yok');
+  Object.assign(st,JSON.parse(undoStack.pop())); save(); draw(); msg('Geri alındı');
+};
+
+/* ---------- dönüş ve odalar ---------- */
+function turn(delta){
+  pushUndo();
+  const p=pos(), r=curRoom();
+  if(r){
+    if(segLen()<0.05){st.dir=(st.dir+delta+360)%360; save(); draw(); return msg('Yön değişti (duvar boş olduğu için köşe eklenmedi)');}
+    r.pts.push(p);
+  }
+  st.track.push(p); if(st.track.length>3000) st.track.shift();
+  newSeg(p); st.dir=(st.dir+delta+360)%360;
+  if(navigator.vibrate) navigator.vibrate([30,40,30]);
+  save(); draw();
+  if(r) msg('Köşe '+r.pts.length+' · '+(delta<0?'sola':delta>90?'arkaya':'sağa')+' dönüldü');
+}
+$('tl').onclick=()=>turn(-90);
+$('tr').onclick=()=>turn(90);
+$('back').onclick=()=>turn(180);
 function polyArea(p){let A=0; for(let i=0;i<p.length;i++){const a=p[i],b=p[(i+1)%p.length]; A+=a.x*b.y-b.x*a.y;} return A/2;}
 function dropCollinear(p){
   let changed=true;
@@ -232,77 +200,76 @@ function dropCollinear(p){
   return p;
 }
 function closeRoom(){
-  const r=curRoom(); if(!r) return msg('Açık oda yok');
-  if(r.pts.length<3) return msg('Odayı kapatmak için en az 3 köşe gerekli');
+  const r=curRoom(); if(!r) return;
+  const c=r.pts, P=[...c,pos()], E=[];
+  if(c.length<3) return msg('Kapatmak için en az 3 köşe gerekli (2 dönüş yapın)');
   pushUndo();
-  const c=r.pts, P=[...c,{...st.pos}], E=[];
   for(let i=1;i<P.length;i++){const e={x:P[i].x-P[i-1].x,y:P[i].y-P[i-1].y}; if(Math.hypot(e.x,e.y)>0.01) E.push(e);}
-  if(st.snap==='90') E.forEach(e=>{if(Math.abs(e.x)>=Math.abs(e.y)) e.y=0; else e.x=0;});
+  E.forEach(e=>{if(Math.abs(e.x)>=Math.abs(e.y)) e.y=0; else e.x=0;});
   const ex=E.reduce((s,e)=>s+e.x,0), ey=E.reduce((s,e)=>s+e.y,0);
   const sx=E.reduce((s,e)=>s+Math.abs(e.x),0), sy=E.reduce((s,e)=>s+Math.abs(e.y),0);
   const gap=Math.hypot(ex,ey);
-  E.forEach(e=>{e.x-=sx?ex*Math.abs(e.x)/sx:ex/E.length; e.y-=sy?ey*Math.abs(e.y)/sy:ey/E.length;});
+  E.forEach(e=>{e.x-=sx?ex*Math.abs(e.x)/sx:0; e.y-=sy?ey*Math.abs(e.y)/sy:0;});
   const out=[{...c[0]}];
-  for(let i=0;i<E.length-1;i++){const p=out[out.length-1]; out.push({x:+(p.x+E[i].x).toFixed(3),y:+(p.y+E[i].y).toFixed(3)});}
+  for(let i=0;i<E.length-1;i++){const p=out[out.length-1]; out.push({x:r3(p.x+E[i].x),y:r3(p.y+E[i].y)});}
   r.raw=c.slice(); r.pts=dropCollinear(out); r.closed=true;
-  st.pos={...c[0]};
+  st.track.push(pos(),{...c[0]});
+  newSeg(c[0]);
   save(); draw();
-  msg('Oda kapatıldı · kapanma farkı '+fmt(gap)+' m düzeltildi');
+  msg('Oda kapandı · '+fmt(gap)+' m fark düzeltildi');
 }
-function corner(){
-  let r=curRoom();
-  if(r&&r.pts.length>=3&&Math.hypot(st.pos.x-r.pts[0].x,st.pos.y-r.pts[0].y)<0.8) return closeRoom();
+$('roomBtn').onclick=()=>{
+  if(curRoom()) return closeRoom();
   pushUndo();
-  if(!r){r={name:'',pts:[],closed:false}; st.rooms.push(r);}
-  r.pts.push({...st.pos}); st.lastCornerSteps=st.steps;
-  if(navigator.vibrate) navigator.vibrate([30,40,30]);
+  const p=pos(); st.track.push(p); newSeg(p);
+  st.rooms.push({name:'',pts:[p],closed:false,dir0:st.dir});
   save(); draw();
-  msg(r.pts.length===1?'Oda '+st.rooms.length+' başladı':'Köşe '+r.pts.length);
-}
-$('corner').onclick=corner;
-$('close').onclick=closeRoom;
-$('undo').onclick=()=>{
-  if(!undoStack.length) return msg('Geri alınacak adım yok');
-  const s=JSON.parse(undoStack.pop()); st.rooms=s.rooms; st.marks=s.marks; st.lastCornerSteps=s.lastCornerSteps; save(); draw(); msg('Geri alındı');
+  msg('Oda '+st.rooms.length+' başladı. Duvar boyunca yürüyün.');
+  if(!running) msg('Oda başladı. Adım saymak için Başla\'ya basın ya da uzunluğu yazın.');
 };
 
-/* ---------- işaretler ---------- */
-function addMark(type){
+/* ---------- uzunluk düzeltme ---------- */
+$('lenBtn').onclick=()=>{$('lenM').value=''; $('lenS').value=''; $('lenSheet').classList.add('show'); setTimeout(()=>$('lenM').focus(),50);};
+$('lenCancel').onclick=()=>$('lenSheet').classList.remove('show');
+$('lenOk').onclick=()=>{
+  const m=parseFloat($('lenM').value.replace(',','.')), s=parseInt($('lenS').value,10);
+  if(!(m>=0)&&!(s>=0)) return msg('Metre ya da adım yazın');
   pushUndo();
-  st.marks.push({type,x:st.pos.x,y:st.pos.y,h:relHead()});
-  save(); draw();
-  msg({door:'Kapı',window:'Pencere',stairs:'Merdiven'}[type]+' işaretlendi');
-}
-document.querySelectorAll('[data-mark]').forEach(b=>b.onclick=()=>addMark(b.dataset.mark));
-function nameTarget(){return curRoom()||st.rooms[st.rooms.length-1]||null;}
-$('nameBtn').onclick=()=>{
-  const r=nameTarget(); if(!r) return msg('Önce bir köşe işaretleyin');
-  $('nameIn').value=r.name||''; $('nameSheet').classList.add('show'); setTimeout(()=>$('nameIn').focus(),50);
+  if(m>=0){st.ovr=m; st.ovrAt=st.segSteps;} else {st.ovr=null; st.segSteps=s; st.ovrAt=0;}
+  $('lenSheet').classList.remove('show'); save(); draw();
 };
+['lenM','lenS'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter') $('lenOk').click();});
+$('plus').onclick=()=>step(1);
+$('minus').onclick=()=>step(-1);
+
+/* ---------- işaretler ---------- */
+document.querySelectorAll('[data-mark]').forEach(b=>b.onclick=()=>{
+  pushUndo(); const p=pos(); st.marks.push({type:b.dataset.mark,x:p.x,y:p.y,h:st.dir}); save(); draw();
+  msg({door:'Kapı',window:'Pencere',stairs:'Merdiven'}[b.dataset.mark]+' işaretlendi');
+});
+function nameTarget(){return curRoom()||st.rooms[st.rooms.length-1]||null;}
+$('nameBtn').onclick=()=>{const r=nameTarget(); if(!r) return msg('Önce bir odaya başlayın'); $('nameIn').value=r.name||''; $('nameSheet').classList.add('show'); setTimeout(()=>$('nameIn').focus(),50);};
 $('nameOk').onclick=()=>{const r=nameTarget(); if(r){pushUndo(); r.name=$('nameIn').value.trim(); save(); draw();} $('nameSheet').classList.remove('show');};
 $('nameCancel').onclick=()=>$('nameSheet').classList.remove('show');
 $('nameIn').onkeydown=e=>{if(e.key==='Enter') $('nameOk').click();};
-$('plus').onclick=()=>step();
-$('left').onclick=()=>{st.off=(st.off+270)%360; save(); draw();};
-$('right').onclick=()=>{st.off=(st.off+90)%360; save(); draw();};
 let resetArmed=false;
 $('reset').onclick=()=>{
   if(!resetArmed){resetArmed=true; $('reset').textContent='Emin misiniz?'; setTimeout(()=>{resetArmed=false;$('reset').textContent='Sıfırla';},3000); return;}
   resetArmed=false; $('reset').textContent='Sıfırla';
-  st.pos={x:0,y:0}; st.track=[{x:0,y:0}]; st.rooms=[]; st.marks=[]; st.steps=0; st.lastCornerSteps=0; st.off=0; gyroHead=0; st.ref=running?compass:null; undoStack=[]; save(); draw();
+  Object.assign(st,{dir:0,start:{x:0,y:0},segSteps:0,ovr:null,ovrAt:0,track:[{x:0,y:0}],rooms:[],marks:[],steps:0}); undoStack=[]; save(); draw();
 };
 
 /* ---------- ayarlar ---------- */
-$('stepCm').value=st.stepCm; $('wallCm').value=st.wallCm; $('sens').value=st.sens; $('snap').value=st.snap; $('flip').checked=st.flip; $('src').value=st.src||'auto';
+$('stepCm').value=st.stepCm; $('wallCm').value=st.wallCm; $('sens').value=st.sens;
 const applySettings=()=>{
   const v=+$('stepCm').value; if(v>=30&&v<=120) st.stepCm=v;
   const w=+$('wallCm').value; if(w>=0&&w<=100) st.wallCm=w;
-  st.sens=$('sens').value; st.snap=$('snap').value; st.flip=$('flip').checked; const ns=$('src').value; if(ns!==(st.src||'auto')){const prev=rawHead()-st.off; st.src=ns; gyroBad=false; if(compass!=null) st.ref=compass-prev; gyroHead=prev;} save(); draw();
+  st.sens=$('sens').value; save(); draw();
 };
-['stepCm','wallCm','sens','snap','flip','src'].forEach(id=>$(id).onchange=applySettings);
+['stepCm','wallCm','sens'].forEach(id=>$(id).onchange=applySettings);
 $('setBtn').onclick=()=>$('setSheet').classList.add('show');
 $('closeSet').onclick=()=>{applySettings(); $('setSheet').classList.remove('show');};
-if(st.steps===0&&!st.rooms.length) $('setSheet').classList.add('show');
+if(!st.rooms.length&&st.steps===0) $('setSheet').classList.add('show');
 
 /* ---------- geometri ---------- */
 function offsetPoly(p,d){
@@ -320,18 +287,18 @@ function roomShape(r){return r.closed?offsetPoly(r.pts,st.wallCm/100):r.pts;}
 function centroid(p){let x=0,y=0; p.forEach(q=>{x+=q.x;y+=q.y;}); return {x:x/p.length,y:y/p.length};}
 
 /* ---------- çizim ---------- */
-function bounds(){
+function bounds(live){
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   const add=(x,y)=>{x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);};
-  st.track.forEach(p=>add(p.x,p.y)); add(st.pos.x,st.pos.y);
   st.rooms.forEach(r=>roomShape(r).forEach(p=>add(p.x,p.y)));
   st.marks.forEach(m=>{add(m.x-1.5,m.y-1.5);add(m.x+1.5,m.y+1.5);});
+  if(live||x0===Infinity){st.track.forEach(p=>add(p.x,p.y)); const p=pos(); add(p.x,p.y);}
   return {x0,y0,x1,y1};
 }
 function render(c,W,H,live){
   const g=c.getContext('2d');
   g.fillStyle='#fff'; g.fillRect(0,0,W,H);
-  const b=bounds(), pad=40;
+  const b=bounds(live), pad=40;
   const sc=Math.min(80*(W/400),(W-2*pad)/Math.max(6,b.x1-b.x0),(H-2*pad)/Math.max(6,b.y1-b.y0));
   const mx=(b.x0+b.x1)/2, my=(b.y0+b.y1)/2;
   const T=(x,y)=>[W/2+(x-mx)*sc,H/2+(y-my)*sc];
@@ -339,30 +306,33 @@ function render(c,W,H,live){
   for(let x=Math.floor(mx-W/2/sc);x<=Math.ceil(mx+W/2/sc);x++){const [px]=T(x,0); g.moveTo(px,0); g.lineTo(px,H);}
   for(let y=Math.floor(my-H/2/sc);y<=Math.ceil(my+H/2/sc);y++){const [,py]=T(0,y); g.moveTo(0,py); g.lineTo(W,py);}
   g.stroke();
-  g.lineJoin='round'; g.lineCap='round';
-  if(live&&st.track.length>1){
-    g.strokeStyle='#c9c9c9'; g.lineWidth=2; g.beginPath();
-    st.track.forEach((p,i)=>{const [x,y]=T(p.x,p.y); i?g.lineTo(x,y):g.moveTo(x,y);}); g.lineTo(...T(st.pos.x,st.pos.y)); g.stroke();
+  const P=pos();
+  if(live&&st.track.length){
+    g.strokeStyle='#c9c9c9'; g.lineWidth=2; g.lineJoin='round'; g.beginPath();
+    st.track.forEach((p,i)=>{const [x,y]=T(p.x,p.y); i?g.lineTo(x,y):g.moveTo(x,y);}); g.lineTo(...T(P.x,P.y)); g.stroke();
   }
   const wl=Math.max(3,0.15*sc);
   for(const r of st.rooms){
     const p=roomShape(r); if(!p.length) continue;
     g.strokeStyle='#000'; g.lineWidth=wl; g.lineJoin='miter'; g.lineCap='square';
     g.beginPath(); p.forEach((q,i)=>{const [x,y]=T(q.x,q.y); i?g.lineTo(x,y):g.moveTo(x,y);}); if(r.closed) g.closePath(); g.stroke();
-    if(!r.closed){p.forEach(q=>{const [x,y]=T(q.x,q.y); g.fillStyle='#000'; g.beginPath(); g.arc(x,y,wl*0.9,0,7); g.fill();});}
+    if(!r.closed){g.fillStyle='#000'; p.forEach(q=>{const [x,y]=T(q.x,q.y); g.beginPath(); g.arc(x,y,wl*0.9,0,7); g.fill();});}
+    g.textAlign='center'; g.textBaseline='middle';
     if(r.closed){
       const cc=centroid(p), [x,y]=T(cc.x,cc.y), area=Math.abs(polyArea(p));
-      g.textAlign='center'; g.textBaseline='middle'; g.fillStyle='#000';
+      g.fillStyle='#000';
       if(r.name){g.font='bold 15px Arial, sans-serif'; g.fillText(r.name,x,y-9);}
-      g.font='12px Arial, sans-serif'; g.fillText(fmt(area)+' m²',x,r.name?y+9:y);
+      g.font='12px Arial, sans-serif'; g.fillText(fmt1(area)+' m²',x,r.name?y+9:y);
       g.font='11px Arial, sans-serif'; g.fillStyle='#333';
       for(let i=0;i<p.length;i++){
         const a=p[i],bq=p[(i+1)%p.length], L=Math.hypot(bq.x-a.x,bq.y-a.y); if(L<0.6) continue;
         const m={x:(a.x+bq.x)/2,y:(a.y+bq.y)/2}, dx=m.x-cc.x, dy=m.y-cc.y, dl=Math.hypot(dx,dy)||1;
         const [tx,ty]=T(m.x-dx/dl*0.35,m.y-dy/dl*0.35); g.fillText(fmt(L),tx,ty);
       }
-    } else if(r.name){
-      const [x,y]=T(r.pts[0].x,r.pts[0].y); g.font='bold 14px Arial, sans-serif'; g.textAlign='left'; g.fillStyle='#000'; g.fillText(r.name,x+10,y-12);
+    } else {
+      g.font='11px Arial, sans-serif'; g.fillStyle='#333';
+      for(let i=1;i<p.length;i++){const a=p[i-1],bq=p[i],[tx,ty]=T((a.x+bq.x)/2,(a.y+bq.y)/2); g.fillText(fmt(Math.hypot(bq.x-a.x,bq.y-a.y)),tx+12,ty-12);}
+      if(r.name){const [x,y]=T(r.pts[0].x,r.pts[0].y); g.font='bold 14px Arial, sans-serif'; g.fillStyle='#000'; g.fillText(r.name,x,y-18);}
     }
   }
   for(const m of st.marks){
@@ -383,42 +353,37 @@ function render(c,W,H,live){
     g.restore();
   }
   if(live){
-    const r=curRoom();
-    if(r&&r.pts.length){
-      const a=r.pts[r.pts.length-1], [ax,ay]=T(a.x,a.y), [px,py]=T(st.pos.x,st.pos.y);
+    const r=curRoom(), [sx,sy]=T(st.start.x,st.start.y), [px,py]=T(P.x,P.y);
+    if(r){
       g.strokeStyle='#1a73e8'; g.lineWidth=wl; g.globalAlpha=0.5; g.setLineDash([8,6]); g.lineCap='butt';
-      g.beginPath(); g.moveTo(ax,ay); g.lineTo(px,py); g.stroke(); g.setLineDash([]); g.globalAlpha=1;
-      if(r.pts.length>=3){const [fx,fy]=T(r.pts[0].x,r.pts[0].y); g.strokeStyle='#1a73e8'; g.lineWidth=2; g.beginPath(); g.arc(fx,fy,0.8*sc,0,7); g.stroke();}
+      g.beginPath(); g.moveTo(sx,sy); g.lineTo(px,py); g.stroke(); g.setLineDash([]); g.globalAlpha=1;
+      if(r.pts.length>=3){const [fx,fy]=T(r.pts[0].x,r.pts[0].y); g.strokeStyle='#1a73e8'; g.lineWidth=2; g.beginPath(); g.arc(fx,fy,10,0,7); g.stroke();}
     }
-    const [x,y]=T(st.pos.x,st.pos.y), h=relHead()*Math.PI/180;
-    g.fillStyle='#1a73e8'; g.beginPath(); g.arc(x,y,8,0,7); g.fill();
-    g.beginPath(); g.moveTo(x+Math.sin(h)*24,y-Math.cos(h)*24); g.lineTo(x+Math.sin(h+2.5)*10,y-Math.cos(h+2.5)*10); g.lineTo(x+Math.sin(h-2.5)*10,y-Math.cos(h-2.5)*10); g.closePath(); g.fill();
+    const h=st.dir*Math.PI/180;
+    g.fillStyle='#1a73e8'; g.beginPath(); g.arc(px,py,8,0,7); g.fill();
+    g.beginPath(); g.moveTo(px+Math.sin(h)*24,py-Math.cos(h)*24); g.lineTo(px+Math.sin(h+2.5)*10,py-Math.cos(h+2.5)*10); g.lineTo(px+Math.sin(h-2.5)*10,py-Math.cos(h-2.5)*10); g.closePath(); g.fill();
   }
   g.fillStyle='#000'; g.fillRect(16,H-22,sc,6); g.font='12px Arial, sans-serif'; g.textAlign='left'; g.textBaseline='alphabetic'; g.fillText('1 m',16,H-28);
 }
-const DIRS=['ileri','sağ-ileri','sağ','sağ-geri','geri','sol-geri','sol','sol-ileri'];
 function draw(){
   const dpr=devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight;
   if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);}
   ctx.setTransform(dpr,0,0,dpr,0,0); render(cv,W,H,true);
   const r=curRoom();
-  $('steps').textContent=st.steps;
-  $('roomInfo').textContent=r?('Oda '+st.rooms.length+(r.name?' ('+r.name+')':'')+' · '+r.pts.length+' köşe'):(st.rooms.length?st.rooms.length+' oda tamam':'Oda yok');
-  const hd=relHead(), dirTxt=DIRS[Math.round(hd/45)%8];
-  if(r&&r.pts.length){const a=r.pts[r.pts.length-1]; $('wallInfo').textContent='Bu duvar: '+fmt(Math.hypot(st.pos.x-a.x,st.pos.y-a.y))+' m ('+(st.steps-st.lastCornerSteps)+' adım) · '+dirTxt;}
-  else $('wallInfo').textContent='Yön: '+dirTxt+(running&&!hasGyro&&compass==null?' · sensör yok':'');
+  $('roomInfo').textContent=r?('Oda '+st.rooms.length+(r.name?' ('+r.name+')':'')+' · '+r.pts.length+' köşe'):(st.rooms.length?st.rooms.length+' oda tamam · odalar arası yürüyüş':'Oda yok');
+  $('info').textContent=(running?'Adım sayacı açık':'Adım sayacı kapalı')+' · toplam '+st.steps+' adım';
+  $('lenTxt').textContent=fmt(Math.max(0,segLen()))+' m';
+  $('lenSub').textContent=(st.ovr!=null?'elle girildi':st.segSteps+' adım')+' · düzeltmek için dokunun';
+  $('roomBtn').textContent=r?'Odayı kapat (ilk köşeye döndüm)':'Odaya başla (buradaki köşe)';
+  $('roomBtn').classList.toggle('dark',!!r&&r.pts.length>=3);
 }
-const SRC={gyro:'jiroskop',compass:'pusula',manual:'elle'};
-setInterval(()=>{$('dbg').textContent='Sensör: '+SRC[useSrc()]+' · dönüş '+Math.round(yawRate)+'°/s · pusula '+(compass==null?'yok':Math.round(compass)+'°')+(hasGyro?'':' · jiroskop yok');},300);
 addEventListener('resize',draw);
-setInterval(()=>{if(running) draw();},200);
-setInterval(()=>{if(running) save();},3000);
 
 /* ---------- çıktı ---------- */
 function download(blob,name){const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},1000);}
 $('png').onclick=()=>{
   if(!st.rooms.length) return msg('Önce en az bir oda çizin');
-  const c=document.createElement('canvas'), b=bounds(), r=(b.x1-b.x0+3)/(b.y1-b.y0+3);
+  const c=document.createElement('canvas'), b=bounds(false), r=(b.x1-b.x0+3)/(b.y1-b.y0+3);
   c.width=2000; c.height=Math.round(Math.max(800,Math.min(4000,2000/r)));
   render(c,c.width,c.height,false);
   c.toBlob(bl=>download(bl,'kroki.png'),'image/png');
